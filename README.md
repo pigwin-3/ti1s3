@@ -46,3 +46,11 @@ it use the env BD
 ```bash
 docker compose up -d --build
 ```
+
+## Docker image publish (GitHub)
+
+GitHub Actions builds and publishes the image to GitHub Container Registry (GHCR):
+
+- Image: `ghcr.io/pigwin-3/ti1s3`
+- On push to `main`: publishes `latest` and `sha-<commit>`
+

@@ -53,9 +53,9 @@ func main() {
 	httpClient := &http.Client{Timeout: 180 * time.Second}
 	state := &healthState{}
 	startHealthServer(cfg, state)
+	cfg.PollInterval = 20 * time.Second
 
 	log.Printf("starting poller with requestorId=%s interval=%s", cfg.RequestorID, cfg.PollInterval)
-
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
 
@@ -70,7 +70,7 @@ func main() {
 			return
 		}
 
-		objectKey := time.Now().Format("20060102150405") + "-et.xml"
+		objectKey := time.Now().UTC().Format("20060102150405") + "-et.xml"
 		if err := uploadToS3(ctx, httpClient, cfg, objectKey, xmlData); err != nil {
 			state.ok.Store(false)
 			log.Printf("upload failed: %v", err)
