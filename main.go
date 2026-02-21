@@ -71,9 +71,10 @@ func main() {
 		}
 
 		objectKey := time.Now().UTC().Format("20060102150405") + "-et.xml"
+		uploadStartedAt := time.Now()
 		if err := uploadToS3(ctx, httpClient, cfg, objectKey, xmlData); err != nil {
 			state.ok.Store(false)
-			log.Printf("upload failed: %v", err)
+			log.Printf("upload failed after %s: %v", time.Since(uploadStartedAt).Round(time.Millisecond), err)
 			return
 		}
 
@@ -82,7 +83,7 @@ func main() {
 		state.lastSuccessUnix.Store(nowUnix)
 		state.lastSuccessObject.Store(objectKey)
 
-		log.Printf("uploaded %s (%d bytes)", objectKey, len(xmlData))
+		log.Printf("uploaded %s (%d bytes) in %s", objectKey, len(xmlData), time.Since(uploadStartedAt).Round(time.Millisecond))
 	}
 
 	uploadOnce()
