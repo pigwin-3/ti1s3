@@ -17,14 +17,14 @@ type Config struct {
 	UsedFilesCacheTTL time.Duration
 	APIKeys           []string
 
-	S3Endpoint  	  string
-	S3Region    	  string
-	S3Bucket    	  string
-	S3AccessKey 	  string
-	S3SecretKey 	  string
-	S3PathStyle 	  bool
+	S3Endpoint  string
+	S3Region    string
+	S3Bucket    string
+	S3AccessKey string
+	S3SecretKey string
+	S3PathStyle bool
 
-	HealthAddr 		  string
+	HealthAddr string
 }
 
 func Load(startupTimestamp string) (Config, error) {
