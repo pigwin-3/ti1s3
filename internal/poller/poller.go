@@ -12,10 +12,9 @@ import (
 	"ti1s3/internal/s3store"
 )
 
-func Run(cfg config.Config, httpClient *http.Client, state *health.State) {
-	storage := s3store.NewClient(httpClient, cfg)
+func Run(cfg config.Config, httpClient *http.Client, state *health.State, storage *s3store.Client) {
 
-	log.Printf("starting poller with requestorId=%s interval=%s retention=%s", cfg.RequestorID, cfg.PollInterval, cfg.RetentionTTL)
+	log.Printf("starting poller with requestorId=%s interval=%s retention_default=%s retention_used=%s", cfg.RequestorID, cfg.PollInterval, cfg.RetentionTTL, cfg.UsedRetentionTTL)
 	ticker := time.NewTicker(cfg.PollInterval)
 	defer ticker.Stop()
 
@@ -25,7 +24,7 @@ func Run(cfg config.Config, httpClient *http.Client, state *health.State) {
 
 		xmlData, err := entur.FetchXML(ctx, httpClient, cfg.EnturBaseURL, cfg.RequestorID)
 		if err != nil {
-			state.MarkFailure()
+			state.MarkFailure(err.Error())
 			log.Printf("fetch failed: %v", err)
 			return
 		}
@@ -33,15 +32,23 @@ func Run(cfg config.Config, httpClient *http.Client, state *health.State) {
 		objectKey := time.Now().UTC().Format("20060102150405") + "-et.xml"
 		uploadStartedAt := time.Now()
 		if err := storage.UploadXML(ctx, objectKey, xmlData); err != nil {
-			state.MarkFailure()
+			state.MarkFailure(err.Error())
 			log.Printf("upload failed after %s: %v", time.Since(uploadStartedAt).Round(time.Millisecond), err)
+			return
+		}
+
+		usedFiles, err := storage.UsedFilesSet(ctx)
+		if err != nil {
+			state.MarkFailure(err.Error())
+			log.Printf("failed to load used file index: %v", err)
 			return
 		}
 
 		cleanupStartedAt := time.Now()
 		retentionCutoff := time.Now().UTC().Add(-cfg.RetentionTTL)
-		if err := storage.DeleteExpiredObjects(ctx, retentionCutoff); err != nil {
-			state.MarkFailure()
+		usedRetentionCutoff := time.Now().UTC().Add(-cfg.UsedRetentionTTL)
+		if err := storage.DeleteExpiredObjects(ctx, retentionCutoff, usedRetentionCutoff, usedFiles); err != nil {
+			state.MarkFailure(err.Error())
 			log.Printf("cleanup failed after %s: %v", time.Since(cleanupStartedAt).Round(time.Millisecond), err)
 			return
 		}

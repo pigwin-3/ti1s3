@@ -8,6 +8,7 @@ import (
 	"ti1s3/internal/config"
 	"ti1s3/internal/health"
 	"ti1s3/internal/poller"
+	"ti1s3/internal/s3store"
 )
 
 func main() {
@@ -21,7 +22,8 @@ func main() {
 
 	httpClient := &http.Client{Timeout: 180 * time.Second}
 	state := health.NewState()
-	health.StartServer(cfg.HealthAddr, cfg.RequestorID, state)
+	storage := s3store.NewClient(httpClient, cfg)
+	health.StartServer(cfg.HealthAddr, cfg.RequestorID, cfg.APIKeys, state, storage)
 
-	poller.Run(cfg, httpClient, state)
+	poller.Run(cfg, httpClient, state, storage)
 }
