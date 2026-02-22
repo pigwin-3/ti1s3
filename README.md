@@ -30,8 +30,8 @@ Use environment variables (same names for local `.env` and Docker Compose):
 
 - `GET /healthz` -> JSON details, returns `200` when healthy, `404` when not healthy.
 - `GET /health-status` -> plain text only (`ok` or `not ok`), returns `200` or `404`.
-- `GET /used-files` -> JSON list of files already marked as used.
-- `POST /used-files/mark` -> mark one file as used for shorter retention.
+- `GET /used-files` -> JSON list of files already marked as used. Requiers API key.
+- `POST /used-files/mark` -> mark one file as used for shorter retention. Requires API key.
 
 If `API_KEYS` is set, send one key in either `X-API-Key` or `Authorization: Bearer <key>` for `/used-files` endpoints.
 
