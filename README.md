@@ -11,6 +11,7 @@ Simple ET XML snapshot poller.
 Use environment variables (same names for local `.env` and Docker Compose):
 
 - `POLL_INTERVAL_SECONDS` (default: `20`)
+- `RETENTION_HOURS` (default: `168` / 7 days)
 - `ENTUR_REQUESTOR_ID` (optional; if empty: `ti1s3-<startup timestamp>`)
 - `ENTUR_BASE_URL` (default: `https://api.entur.io/realtime/v1/rest/et`)
 - `S3_ENDPOINT` (required)
