@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -22,25 +23,34 @@ func Run(cfg config.Config, httpClient *http.Client, state *health.State, storag
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 		defer cancel()
 
+		handleFailure := func(prefix string, err error) {
+			state.MarkFailure(err.Error())
+			log.Printf("%s: %v", prefix, err)
+
+			logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer logCancel()
+
+			if logErr := storage.AppendErrorLog(logCtx, fmt.Sprintf("%s: %v", prefix, err), time.Now().UTC()); logErr != nil {
+				log.Printf("failed to write error log: %v", logErr)
+			}
+		}
+
 		xmlData, err := entur.FetchXML(ctx, httpClient, cfg.EnturBaseURL, cfg.RequestorID)
 		if err != nil {
-			state.MarkFailure(err.Error())
-			log.Printf("fetch failed: %v", err)
+			handleFailure("fetch failed", err)
 			return
 		}
 
 		objectKey := time.Now().UTC().Format("20060102150405") + "-et.xml"
 		uploadStartedAt := time.Now()
 		if err := storage.UploadXML(ctx, objectKey, xmlData); err != nil {
-			state.MarkFailure(err.Error())
-			log.Printf("upload failed after %s: %v", time.Since(uploadStartedAt).Round(time.Millisecond), err)
+			handleFailure(fmt.Sprintf("upload failed after %s", time.Since(uploadStartedAt).Round(time.Millisecond)), err)
 			return
 		}
 
 		usedFiles, err := storage.UsedFilesSet(ctx)
 		if err != nil {
-			state.MarkFailure(err.Error())
-			log.Printf("failed to load used file index: %v", err)
+			handleFailure("failed to load used file index", err)
 			return
 		}
 
@@ -48,8 +58,7 @@ func Run(cfg config.Config, httpClient *http.Client, state *health.State, storag
 		retentionCutoff := time.Now().UTC().Add(-cfg.RetentionTTL)
 		usedRetentionCutoff := time.Now().UTC().Add(-cfg.UsedRetentionTTL)
 		if err := storage.DeleteExpiredObjects(ctx, retentionCutoff, usedRetentionCutoff, usedFiles); err != nil {
-			state.MarkFailure(err.Error())
-			log.Printf("cleanup failed after %s: %v", time.Since(cleanupStartedAt).Round(time.Millisecond), err)
+			handleFailure(fmt.Sprintf("cleanup failed after %s", time.Since(cleanupStartedAt).Round(time.Millisecond)), err)
 			return
 		}
 

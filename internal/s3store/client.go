@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,11 +31,22 @@ type UsedFile struct {
 	UsedAt time.Time `json:"usedAt"`
 }
 
+type ErrorLogEntry struct {
+	OccurredAt time.Time `json:"occurredAt"`
+	Message    string    `json:"message"`
+}
+
 type usedFileIndex struct {
 	Files map[string]time.Time `json:"files"`
 }
 
+type errorLogFile struct {
+	Date   string          `json:"date"`
+	Errors []ErrorLogEntry `json:"errors"`
+}
+
 const usedFilesIndexKey = "_meta/used-files.json"
+const errorLogsPrefix = "_meta/logs/"
 
 func NewClient(httpClient *http.Client, cfg config.Config) *Client {
 	return &Client{httpClient: httpClient, cfg: cfg}
@@ -166,6 +178,39 @@ func (client *Client) MarkFileUsed(ctx context.Context, key string, usedAt time.
 	return nil
 }
 
+func (client *Client) AppendErrorLog(ctx context.Context, message string, occurredAt time.Time) error {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" {
+		return fmt.Errorf("message is required")
+	}
+
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	} else {
+		occurredAt = occurredAt.UTC()
+	}
+
+	day := occurredAt.Format("2006-01-02")
+	key := errorLogObjectKey(occurredAt)
+
+	current, err := client.loadErrorLogFile(ctx, key)
+	if err != nil {
+		return err
+	}
+
+	current.Date = day
+	current.Errors = append(current.Errors, ErrorLogEntry{
+		OccurredAt: occurredAt,
+		Message:    trimmed,
+	})
+
+	if err := client.saveErrorLogFile(ctx, key, current); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (client *Client) loadUsedFileIndex(ctx context.Context) (usedFileIndex, error) {
 	targetURL, host, canonicalURI, err := requestTarget(client.cfg, usedFilesIndexKey)
 	if err != nil {
@@ -269,6 +314,10 @@ func copyUsedFilesMap(source map[string]time.Time) map[string]time.Time {
 	return result
 }
 
+func errorLogObjectKey(occurredAt time.Time) string {
+	return errorLogsPrefix + occurredAt.UTC().Format("2006-01-02") + ".json"
+}
+
 func (client *Client) saveUsedFileIndex(ctx context.Context, index usedFileIndex) error {
 	data, err := json.Marshal(index)
 	if err != nil {
@@ -276,6 +325,64 @@ func (client *Client) saveUsedFileIndex(ctx context.Context, index usedFileIndex
 	}
 
 	targetURL, host, canonicalURI, err := requestTarget(client.cfg, usedFilesIndexKey)
+	if err != nil {
+		return err
+	}
+
+	resp, err := doSignedRequest(ctx, client.httpClient, client.cfg, http.MethodPut, targetURL, host, canonicalURI, "", "application/json", data)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("s3 returned %s: %s", resp.Status, body)
+	}
+
+	return nil
+}
+
+func (client *Client) loadErrorLogFile(ctx context.Context, key string) (errorLogFile, error) {
+	targetURL, host, canonicalURI, err := requestTarget(client.cfg, key)
+	if err != nil {
+		return errorLogFile{}, err
+	}
+
+	resp, err := doSignedRequest(ctx, client.httpClient, client.cfg, http.MethodGet, targetURL, host, canonicalURI, "", "", nil)
+	if err != nil {
+		return errorLogFile{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return errorLogFile{Errors: []ErrorLogEntry{}}, nil
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return errorLogFile{}, fmt.Errorf("s3 returned %s: %s", resp.Status, body)
+	}
+
+	var logFile errorLogFile
+	if err := json.NewDecoder(resp.Body).Decode(&logFile); err != nil {
+		return errorLogFile{}, fmt.Errorf("decode error log file: %w", err)
+	}
+
+	if logFile.Errors == nil {
+		logFile.Errors = []ErrorLogEntry{}
+	}
+
+	return logFile, nil
+}
+
+func (client *Client) saveErrorLogFile(ctx context.Context, key string, logFile errorLogFile) error {
+	data, err := json.Marshal(logFile)
+	if err != nil {
+		return fmt.Errorf("encode error log file: %w", err)
+	}
+
+	targetURL, host, canonicalURI, err := requestTarget(client.cfg, key)
 	if err != nil {
 		return err
 	}

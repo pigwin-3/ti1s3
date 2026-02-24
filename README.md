@@ -5,6 +5,7 @@ Simple ET XML snapshot poller.
 - Fetches Entur ET data every 20 seconds
 - Keeps one constant `requestorId` *(for runtime)*
 - Uploads raw XML to S3 as `YYYYMMDDHHmmss-et.xml`.
+- Stores runtime errors in daily JSON files under `_meta/logs/YYYY-MM-DD.json`.
 
 ## Config
 
