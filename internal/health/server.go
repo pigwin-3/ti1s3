@@ -196,6 +196,8 @@ func StartServer(addr string, requestorID string, callbackPath string, apiKeys [
 			return
 		}
 
+		log.Printf("subscription callback request received remote=%s path=%s content_type=%s user_agent=%q", request.RemoteAddr, request.URL.Path, request.Header.Get("Content-Type"), request.UserAgent())
+
 		// Store raw payload from Entur direct-delivery as a time-keyed XML snapshot.
 		payload, err := io.ReadAll(io.LimitReader(request.Body, 20<<20))
 		if err != nil {
@@ -210,6 +212,8 @@ func StartServer(addr string, requestorID string, callbackPath string, apiKeys [
 			return
 		}
 
+		log.Printf("subscription callback payload received bytes=%d", len(payload))
+
 		objectKey := time.Now().UTC().Format("20060102150405") + "-et-sub.xml"
 		ctx, cancel := context.WithTimeout(request.Context(), 2*time.Minute)
 		defer cancel()
@@ -223,6 +227,7 @@ func StartServer(addr string, requestorID string, callbackPath string, apiKeys [
 		}
 
 		state.MarkSuccess(objectKey)
+		log.Printf("subscription callback stored object=%s bytes=%d", objectKey, len(payload))
 		writer.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(writer).Encode(map[string]string{"status": "ok", "objectKey": objectKey})
 	})

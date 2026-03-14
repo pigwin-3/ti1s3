@@ -40,6 +40,7 @@ func Run(cfg config.Config, httpClient *http.Client, state *health.State, storag
 			handleFailure("fetch failed", err)
 			return
 		}
+		log.Printf("received payload from entur bytes=%d", len(xmlData))
 
 		objectKey := time.Now().UTC().Format("20060102150405") + "-et.xml"
 		uploadStartedAt := time.Now()

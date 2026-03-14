@@ -26,11 +26,22 @@ func main() {
 	state := health.NewState()
 	storage := s3store.NewClient(httpClient, cfg)
 	health.StartServer(cfg.HealthAddr, cfg.RequestorID, cfg.SubscribeCallbackPath, cfg.APIKeys, state, storage)
+	log.Printf("startup complete requestorId=%s mode=%s health_addr=%s", cfg.RequestorID, cfg.Mode, cfg.HealthAddr)
 
 	if cfg.SubscribeEnabled {
 		if cfg.SubscribeConsumerAddress == "" {
 			log.Fatalf("ENTUR_SUBSCRIBE_CONSUMER_ADDRESS is required when subscribe mode is enabled")
 		}
+
+		log.Printf("subscribe mode enabled subscribe_url=%s callback_path=%s consumer_address=%s heartbeat=%s initial_termination=%s auto_renew=%t renew_before=%s",
+			cfg.EnturSubscribeURL,
+			cfg.SubscribeCallbackPath,
+			cfg.SubscribeConsumerAddress,
+			cfg.SubscribeHeartbeatInterval,
+			cfg.SubscribeInitialTermination,
+			cfg.SubscribeAutoRenew,
+			cfg.SubscribeRenewBeforeTermination,
+		)
 
 		subscribeOnce := func() (time.Time, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -66,10 +77,12 @@ func main() {
 					if sleepFor < time.Second {
 						sleepFor = time.Second
 					}
+					log.Printf("next subscribe renewal in %s", sleepFor.Round(time.Second))
 
 					time.Sleep(sleepFor)
 					updatedRenewAt, renewErr := subscribeOnce()
 					if renewErr != nil {
+						log.Printf("subscribe renewal failed, retrying in 30s")
 						nextRenewAt = time.Now().Add(30 * time.Second)
 						continue
 					}
@@ -79,8 +92,10 @@ func main() {
 			}()
 		}
 
+		log.Printf("subscribe mode running; waiting for Entur deliveries")
 		select {}
 	}
 
+	log.Printf("poll mode enabled; starting periodic Entur fetches")
 	poller.Run(cfg, httpClient, state, storage)
 }
