@@ -29,7 +29,6 @@ func SubscribeET(ctx context.Context, client *http.Client, cfg config.Config) (S
 		cfg.SubscribeConsumerAddress,
 		messageID,
 		termination,
-		cfg.SubscribeHeartbeatInterval,
 	)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSpace(cfg.EnturSubscribeURL), strings.NewReader(body))
@@ -38,6 +37,7 @@ func SubscribeET(ctx context.Context, client *http.Client, cfg config.Config) (S
 	}
 	req.Header.Set("Content-Type", "application/xml")
 	req.Header.Set("Accept", "application/xml, text/xml, application/json")
+	req.Header.Set("Client-Name", cfg.RequestorID)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -73,45 +73,43 @@ func buildSubscribeRequestBody(
 	consumerAddress string,
 	messageID string,
 	initialTerminationTime time.Time,
-	heartbeatInterval time.Duration,
 ) string {
 	requestTimestamp := now.Format(time.RFC3339)
 	terminationTimestamp := initialTerminationTime.Format(time.RFC3339)
-	heartbeat := formatDurationSeconds(heartbeatInterval)
 
 	var b bytes.Buffer
 	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
 	b.WriteString("<Siri version=\"2.0\" xmlns=\"http://www.siri.org.uk/siri\">\n")
-	b.WriteString("  <ServiceRequest>\n")
+	b.WriteString("  <SubscriptionRequest>\n")
 	b.WriteString("    <RequestTimestamp>")
 	b.WriteString(requestTimestamp)
 	b.WriteString("</RequestTimestamp>\n")
 	b.WriteString("    <RequestorRef>")
 	b.WriteString(xmlEscape(requestorID))
 	b.WriteString("</RequestorRef>\n")
-	b.WriteString("    <SubscribeRequest>\n")
-	b.WriteString("      <RequestTimestamp>")
-	b.WriteString(requestTimestamp)
-	b.WriteString("</RequestTimestamp>\n")
-	b.WriteString("      <MessageIdentifier>")
+	b.WriteString("    <MessageIdentifier>")
 	b.WriteString(xmlEscape(messageID))
 	b.WriteString("</MessageIdentifier>\n")
-	b.WriteString("      <ConsumerAddress>")
+	b.WriteString("    <ConsumerAddress>")
 	b.WriteString(xmlEscape(consumerAddress))
 	b.WriteString("</ConsumerAddress>\n")
+	b.WriteString("    <EstimatedTimetableSubscriptionRequest>\n")
+	b.WriteString("      <SubscriberRef>")
+	b.WriteString(xmlEscape(requestorID))
+	b.WriteString("</SubscriberRef>\n")
+	b.WriteString("      <SubscriptionIdentifier>")
+	b.WriteString(xmlEscape(messageID))
+	b.WriteString("</SubscriptionIdentifier>\n")
 	b.WriteString("      <InitialTerminationTime>")
 	b.WriteString(terminationTimestamp)
 	b.WriteString("</InitialTerminationTime>\n")
-	b.WriteString("      <HeartbeatInterval>")
-	b.WriteString(heartbeat)
-	b.WriteString("</HeartbeatInterval>\n")
-	b.WriteString("      <EstimatedTimetableSubscriptionRequest>\n")
-	b.WriteString("        <SubscriptionIdentifier>")
-	b.WriteString(xmlEscape(messageID))
-	b.WriteString("</SubscriptionIdentifier>\n")
-	b.WriteString("      </EstimatedTimetableSubscriptionRequest>\n")
-	b.WriteString("    </SubscribeRequest>\n")
-	b.WriteString("  </ServiceRequest>\n")
+	b.WriteString("      <EstimatedTimetableRequest version=\"2.0\">\n")
+	b.WriteString("        <RequestTimestamp>")
+	b.WriteString(requestTimestamp)
+	b.WriteString("</RequestTimestamp>\n")
+	b.WriteString("      </EstimatedTimetableRequest>\n")
+	b.WriteString("    </EstimatedTimetableSubscriptionRequest>\n")
+	b.WriteString("  </SubscriptionRequest>\n")
 	b.WriteString("</Siri>")
 
 	return b.String()
@@ -126,12 +124,4 @@ func xmlEscape(value string) string {
 		"'", "&apos;",
 	)
 	return replacer.Replace(value)
-}
-
-func formatDurationSeconds(duration time.Duration) string {
-	seconds := int(duration.Seconds())
-	if seconds < 1 {
-		seconds = 1
-	}
-	return fmt.Sprintf("PT%dS", seconds)
 }
