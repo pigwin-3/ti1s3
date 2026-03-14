@@ -10,12 +10,24 @@ import (
 
 type Config struct {
 	EnturBaseURL      string
+	EnturSubscribeURL string
 	PollInterval      time.Duration
 	RequestorID       string
-	RetentionTTL      time.Duration
-	UsedRetentionTTL  time.Duration
-	UsedFilesCacheTTL time.Duration
-	APIKeys           []string
+	Mode              string
+
+	SubscribeEnabled                bool
+	SubscribeConsumerAddress        string
+	SubscribeCallbackPath           string
+	SubscribeHeartbeatInterval      time.Duration
+	SubscribeInitialTermination     time.Duration
+	SubscribeUpdateInterval         time.Duration
+	SubscribeAutoRenew              bool
+	SubscribeRenewBeforeTermination time.Duration
+	SubscribeDatasetID              string
+	RetentionTTL                    time.Duration
+	UsedRetentionTTL                time.Duration
+	UsedFilesCacheTTL               time.Duration
+	APIKeys                         []string
 
 	S3Endpoint  string
 	S3Region    string
@@ -55,22 +67,71 @@ func Load(startupTimestamp string) (Config, error) {
 	pathStyle := getEnvBool("S3_PATH_STYLE", true)
 	requestorID := getEnv("ENTUR_REQUESTOR_ID", "ti1s3-"+startupTimestamp)
 	apiKeys := getEnvCSV("API_KEYS")
+	mode := strings.ToLower(getEnv("ENTUR_MODE", "poll"))
+	if mode != "poll" && mode != "subscribe" {
+		mode = "poll"
+	}
+
+	subscribeEnabled := getEnvBool("ENTUR_SUBSCRIBE_ENABLED", mode == "subscribe")
+	if mode == "subscribe" {
+		subscribeEnabled = true
+	}
+
+	subscribeCallbackPath := strings.TrimSpace(getEnv("ENTUR_SUBSCRIBE_CALLBACK_PATH", "/entur/subscription"))
+	if subscribeCallbackPath == "" {
+		subscribeCallbackPath = "/entur/subscription"
+	}
+	if !strings.HasPrefix(subscribeCallbackPath, "/") {
+		subscribeCallbackPath = "/" + subscribeCallbackPath
+	}
+
+	subscribeHeartbeatSeconds := getEnvInt("ENTUR_SUBSCRIBE_HEARTBEAT_SECONDS", 60)
+	if subscribeHeartbeatSeconds < 1 {
+		subscribeHeartbeatSeconds = 60
+	}
+
+	subscribeInitialTerminationMinutes := getEnvInt("ENTUR_SUBSCRIBE_INITIAL_TERMINATION_MINUTES", 60)
+	if subscribeInitialTerminationMinutes < 1 {
+		subscribeInitialTerminationMinutes = 60
+	}
+
+	subscribeUpdateIntervalSeconds := getEnvInt("ENTUR_SUBSCRIBE_UPDATE_INTERVAL_SECONDS", 0)
+	if subscribeUpdateIntervalSeconds < 0 {
+		subscribeUpdateIntervalSeconds = 0
+	}
+
+	subscribeRenewBeforeMinutes := getEnvInt("ENTUR_SUBSCRIBE_RENEW_BEFORE_MINUTES", 5)
+	if subscribeRenewBeforeMinutes < 1 {
+		subscribeRenewBeforeMinutes = 5
+	}
 
 	cfg := Config{
 		EnturBaseURL:      getEnv("ENTUR_BASE_URL", "https://api.entur.io/realtime/v1/rest/et"),
+		EnturSubscribeURL: getEnv("ENTUR_SUBSCRIBE_URL", "https://api.entur.io/realtime/v1/subscribe"),
 		PollInterval:      time.Duration(pollEverySeconds) * time.Second,
 		RequestorID:       requestorID,
-		RetentionTTL:      time.Duration(retentionHours) * time.Hour,
-		UsedRetentionTTL:  time.Duration(usedRetentionHours) * time.Hour,
-		UsedFilesCacheTTL: time.Duration(usedFilesCacheSeconds) * time.Second,
-		APIKeys:           apiKeys,
-		S3Endpoint:        strings.TrimSpace(os.Getenv("S3_ENDPOINT")),
-		S3Region:          getEnv("S3_REGION", "ume1"),
-		S3Bucket:          strings.TrimSpace(os.Getenv("S3_BUCKET")),
-		S3AccessKey:       strings.TrimSpace(os.Getenv("S3_ACCESS_KEY")),
-		S3SecretKey:       strings.TrimSpace(os.Getenv("S3_SECRET_KEY")),
-		S3PathStyle:       pathStyle,
-		HealthAddr:        getEnv("HEALTH_ADDR", ":8080"),
+		Mode:              mode,
+
+		SubscribeEnabled:                subscribeEnabled,
+		SubscribeConsumerAddress:        strings.TrimSpace(os.Getenv("ENTUR_SUBSCRIBE_CONSUMER_ADDRESS")),
+		SubscribeCallbackPath:           subscribeCallbackPath,
+		SubscribeHeartbeatInterval:      time.Duration(subscribeHeartbeatSeconds) * time.Second,
+		SubscribeInitialTermination:     time.Duration(subscribeInitialTerminationMinutes) * time.Minute,
+		SubscribeUpdateInterval:         time.Duration(subscribeUpdateIntervalSeconds) * time.Second,
+		SubscribeAutoRenew:              getEnvBool("ENTUR_SUBSCRIBE_AUTO_RENEW", true),
+		SubscribeRenewBeforeTermination: time.Duration(subscribeRenewBeforeMinutes) * time.Minute,
+		SubscribeDatasetID:              strings.TrimSpace(os.Getenv("ENTUR_SUBSCRIBE_DATASET_ID")),
+		RetentionTTL:                    time.Duration(retentionHours) * time.Hour,
+		UsedRetentionTTL:                time.Duration(usedRetentionHours) * time.Hour,
+		UsedFilesCacheTTL:               time.Duration(usedFilesCacheSeconds) * time.Second,
+		APIKeys:                         apiKeys,
+		S3Endpoint:                      strings.TrimSpace(os.Getenv("S3_ENDPOINT")),
+		S3Region:                        getEnv("S3_REGION", "ume1"),
+		S3Bucket:                        strings.TrimSpace(os.Getenv("S3_BUCKET")),
+		S3AccessKey:                     strings.TrimSpace(os.Getenv("S3_ACCESS_KEY")),
+		S3SecretKey:                     strings.TrimSpace(os.Getenv("S3_SECRET_KEY")),
+		S3PathStyle:                     pathStyle,
+		HealthAddr:                      getEnv("HEALTH_ADDR", ":8080"),
 	}
 
 	if cfg.S3Endpoint == "" || cfg.S3Bucket == "" || cfg.S3AccessKey == "" || cfg.S3SecretKey == "" {

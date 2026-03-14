@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -63,9 +64,16 @@ func (state *State) Snapshot() (bool, int64, string, string, string) {
 	return ok, lastSuccessUnix, lastObject, lastSuccessRFC3339, lastError
 }
 
-func StartServer(addr string, requestorID string, apiKeys []string, state *State, storage *s3store.Client) {
+func StartServer(addr string, requestorID string, callbackPath string, apiKeys []string, state *State, storage *s3store.Client) {
 	mux := http.NewServeMux()
 	requireAPIKey := apiKeyMiddleware(apiKeys)
+
+	if strings.TrimSpace(callbackPath) == "" {
+		callbackPath = "/entur/subscription"
+	}
+	if !strings.HasPrefix(callbackPath, "/") {
+		callbackPath = "/" + callbackPath
+	}
 
 	mux.HandleFunc("/healthz", func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
@@ -181,6 +189,43 @@ func StartServer(addr string, requestorID string, apiKeys []string, state *State
 		writer.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(writer).Encode(map[string]string{"status": "ok"})
 	})))
+
+	mux.HandleFunc(callbackPath, func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			writer.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Store raw payload from Entur direct-delivery as a time-keyed XML snapshot.
+		payload, err := io.ReadAll(io.LimitReader(request.Body, 20<<20))
+		if err != nil {
+			writer.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(writer).Encode(map[string]string{"error": "failed to read request body"})
+			return
+		}
+
+		if len(payload) == 0 {
+			writer.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(writer).Encode(map[string]string{"error": "empty request body"})
+			return
+		}
+
+		objectKey := time.Now().UTC().Format("20060102150405") + "-et-sub.xml"
+		ctx, cancel := context.WithTimeout(request.Context(), 2*time.Minute)
+		defer cancel()
+
+		if err := storage.UploadXML(ctx, objectKey, payload); err != nil {
+			state.MarkFailure(err.Error())
+			log.Printf("subscription callback upload failed: %v", err)
+			writer.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(writer).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		state.MarkSuccess(objectKey)
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]string{"status": "ok", "objectKey": objectKey})
+	})
 
 	go func() {
 		log.Printf("health server listening on %s", addr)
