@@ -42,7 +42,7 @@ func Run(cfg config.Config, httpClient *http.Client, state *health.State, storag
 		}
 		log.Printf("received payload from entur bytes=%d", len(xmlData))
 
-		objectKey := time.Now().UTC().Format("20060102150405") + "-et.xml"
+		objectKey := time.Now().UTC().Format("2006-01-02/15/0405") + "-et.xml"
 		uploadStartedAt := time.Now()
 		if err := storage.UploadXML(ctx, objectKey, xmlData); err != nil {
 			handleFailure(fmt.Sprintf("upload failed after %s", time.Since(uploadStartedAt).Round(time.Millisecond)), err)

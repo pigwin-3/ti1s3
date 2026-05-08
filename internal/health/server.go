@@ -214,7 +214,7 @@ func StartServer(addr string, requestorID string, callbackPath string, apiKeys [
 
 		log.Printf("subscription callback payload received bytes=%d", len(payload))
 
-		objectKey := time.Now().UTC().Format("20060102150405") + "-et-sub.xml"
+		objectKey := time.Now().UTC().Format("2006-01-02/15/0405") + "-et-sub.xml"
 		ctx, cancel := context.WithTimeout(request.Context(), 2*time.Minute)
 		defer cancel()
 
